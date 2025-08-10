@@ -1,7 +1,7 @@
 use crate::bayesian::*;
-use crate::learner::OperationType;
-use crate::tasks::{Task, TaskType};
-use crate::topology::{Topology, TopologyType};
+use crate::core::learner::OperationType;
+use crate::tasks::types::{Task, TaskType};
+use crate::core::topology::{Topology, TopologyType};
 
 #[test]
 fn test_bayesian_model_initialization() {
@@ -67,7 +67,7 @@ fn test_bayesian_model_initialization() {
     }
 
     // Verify chunk boundaries for linear topology
-    if matches!(topo.topology_type, crate::topology::TopologyType::Linear) {
+    if matches!(topo.topology_type, crate::core::topology::TopologyType::Linear) {
         assert_eq!(
             model.chunk_boundaries.len(),
             3,

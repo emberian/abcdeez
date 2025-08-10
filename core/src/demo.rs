@@ -1,7 +1,7 @@
-use crate::adaptive::AdaptiveScheduler;
-use crate::learner::{LearnerMetrics, LearnerModel};
-use crate::tasks::{TaskSession, TaskType};
-use crate::topology::Topology;
+use crate::core::adaptive::AdaptiveScheduler;
+use crate::core::learner::{LearnerMetrics, LearnerModel};
+use crate::tasks::types::{TaskSession, TaskType};
+use crate::core::topology::Topology;
 
 pub fn run_demo() {
     println!("\n═══════════════════════════════════════════════════");
@@ -117,7 +117,7 @@ pub fn demonstrate_dag_tasks() {
     println!("    DAG/PARTIAL ORDER TASK DEMONSTRATIONS");
     println!("═══════════════════════════════════════════════════\n");
 
-    let dag = crate::topology::Topology::example_dag();
+    let dag = crate::core::topology::Topology::example_dag();
     let mut generator = crate::tasks::TaskGenerator::new(dag.clone());
 
     println!("Example DAG: Software Deployment Pipeline");
@@ -175,10 +175,10 @@ pub fn demonstrate_eig() {
     println!("    EXPECTED INFORMATION GAIN DEMONSTRATION");
     println!("═══════════════════════════════════════════════════\n");
 
-    let topology = crate::topology::Topology::alphabet();
-    let learner_model = crate::learner::LearnerModel::new("eig_demo".to_string(), &topology);
+    let topology = crate::core::topology::Topology::alphabet();
+    let learner_model = crate::core::learner::LearnerModel::new("eig_demo".to_string(), &topology);
     let mut scheduler =
-        crate::adaptive::AdaptiveScheduler::new_with_eig(learner_model, topology.clone(), true);
+        crate::core::adaptive::AdaptiveScheduler::new_with_eig(learner_model, topology.clone(), true);
 
     println!(
         "Initial model entropy: {:.2}",
@@ -256,9 +256,9 @@ pub fn demonstrate_eig() {
     println!("\nComparing with Random Selection:");
     println!("──────────────────────────────────────────────────");
 
-    let learner_model2 = crate::learner::LearnerModel::new("random".to_string(), &topology);
+    let learner_model2 = crate::core::learner::LearnerModel::new("random".to_string(), &topology);
     let mut scheduler2 =
-        crate::adaptive::AdaptiveScheduler::new_with_eig(learner_model2, topology.clone(), false);
+        crate::core::adaptive::AdaptiveScheduler::new_with_eig(learner_model2, topology.clone(), false);
 
     let initial_entropy2 = scheduler2.get_model_entropy();
     for _ in 1..=10 {
@@ -279,7 +279,7 @@ pub fn demonstrate_statistical_analysis() {
     println!("    STATISTICAL ANALYSIS DEMONSTRATION");
     println!("═══════════════════════════════════════════════════\n");
 
-    let topology = crate::topology::Topology::alphabet();
+    let topology = crate::core::topology::Topology::alphabet();
     let mut session = crate::tasks::TaskSession::new(topology.clone());
     let mut responses = Vec::new();
 
@@ -514,8 +514,8 @@ pub fn demonstrate_extended_tasks() {
     println!("    EXTENDED TASK DEMONSTRATIONS");
     println!("═══════════════════════════════════════════════════\n");
 
-    let topology = crate::topology::Topology::alphabet();
-    let mut ext_gen = crate::extended_tasks::ExtendedTaskGenerator::new(topology.clone());
+    let topology = crate::core::topology::Topology::alphabet();
+    let mut ext_gen = crate::tasks::extended::ExtendedTaskGenerator::new(topology.clone());
 
     println!("1. Between Query (3-way comparison):");
     println!("──────────────────────────────────────────────────");
@@ -586,22 +586,22 @@ pub fn demonstrate_extended_tasks() {
     println!("Dynamic Topology Demonstration");
     println!("═══════════════════════════════════════════════════\n");
 
-    let base_topology = crate::topology::Topology::new_linear(vec![
+    let base_topology = crate::core::topology::Topology::new_linear(vec![
         "A".to_string(),
         "B".to_string(),
         "C".to_string(),
     ]);
-    let mut dynamic = crate::extended_tasks::DynamicTopology::new(base_topology);
+    let mut dynamic = crate::tasks::extended::DynamicTopology::new(base_topology);
 
     println!("Initial topology: A -> B -> C");
 
-    dynamic.apply_modification(crate::extended_tasks::GraphModification::AddNode {
+    dynamic.apply_modification(crate::tasks::extended::GraphModification::AddNode {
         id: "node_3".to_string(),
         label: "D".to_string(),
         position: 3.0,
     });
 
-    dynamic.apply_modification(crate::extended_tasks::GraphModification::AddEdge {
+    dynamic.apply_modification(crate::tasks::extended::GraphModification::AddEdge {
         from: "node_2".to_string(),
         to: "node_3".to_string(),
         weight: 1.0,
@@ -609,7 +609,7 @@ pub fn demonstrate_extended_tasks() {
 
     println!("After adding D: A -> B -> C -> D");
 
-    dynamic.apply_modification(crate::extended_tasks::GraphModification::AddEdge {
+    dynamic.apply_modification(crate::tasks::extended::GraphModification::AddEdge {
         from: "node_0".to_string(),
         to: "node_2".to_string(),
         weight: 2.0,
@@ -621,18 +621,18 @@ pub fn demonstrate_extended_tasks() {
     println!("Transfer Learning Demonstration");
     println!("═══════════════════════════════════════════════════\n");
 
-    let source = crate::topology::Topology::new_linear(vec![
+    let source = crate::core::topology::Topology::new_linear(vec![
         "1".to_string(),
         "2".to_string(),
         "3".to_string(),
     ]);
-    let target = crate::topology::Topology::new_linear(vec![
+    let target = crate::core::topology::Topology::new_linear(vec![
         "One".to_string(),
         "Two".to_string(),
         "Three".to_string(),
     ]);
 
-    let transfer = crate::extended_tasks::TransferLearning::new(source.clone(), target.clone());
+    let transfer = crate::tasks::extended::TransferLearning::new(source.clone(), target.clone());
 
     let source_task = crate::tasks::Task {
         task_type: crate::tasks::TaskType::Successor {
@@ -642,7 +642,7 @@ pub fn demonstrate_extended_tasks() {
         correct_answer: "3".to_string(),
         options: vec!["1".to_string(), "3".to_string()],
         difficulty: 0.3,
-        operation: crate::learner::OperationType::Successor,
+        operation: crate::core::learner::OperationType::Successor,
     };
 
     if let Some(transferred) = transfer.transfer_task(&source_task) {

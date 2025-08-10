@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::env;
 
 #[cfg(feature = "cli")]
-use abcdeez_core::tui;
+use abcdeez_core::ui::tui;
 
 use abcdeez_core::demo;
 
@@ -23,9 +23,7 @@ fn main() -> Result<()> {
             #[cfg(feature = "cli")]
             "legacy" => {
                 // Use old UI for compatibility
-                use abcdeez_core::ui::TerminalApp;
-                let mut app = TerminalApp::new();
-                app.run().map_err(Into::into)
+                abcdeez_core::ui::tui::run().map_err(Into::into)
             }
             _ => {
                 #[cfg(feature = "cli")]

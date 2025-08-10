@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::models::*;
+use crate::core::models::*;
 
 pub struct ApiClient {
     client: Client,

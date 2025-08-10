@@ -2,9 +2,9 @@
 // Tests for Monte Carlo convergence, correlation significance, and bootstrap methods
 
 use crate::bayesian::BayesianLearnerModel;
-use crate::learner::OperationType;
-use crate::tasks::{Task, TaskType};
-use crate::topology::Topology;
+use crate::core::learner::OperationType;
+use crate::tasks::types::{Task, TaskType};
+use crate::core::topology::Topology;
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;

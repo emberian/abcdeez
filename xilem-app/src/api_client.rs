@@ -9,7 +9,7 @@ use tracing::{debug, error, info, instrument, span, warn, Level};
 use uuid::Uuid;
 
 use crate::config::AppConfig;
-use crate::models::*;
+use crate::core::models::*;
 
 /// Trait for API client operations - allows both real and mock implementations
 #[async_trait::async_trait]

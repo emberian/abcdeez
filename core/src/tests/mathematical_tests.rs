@@ -1,6 +1,6 @@
 use crate::bayesian::*;
 use crate::statistics::*;
-use crate::topology::Topology;
+use crate::core::topology::Topology;
 
 #[test]
 fn test_ex_gaussian_pdf_formula_correctness() {
@@ -237,7 +237,7 @@ fn test_numerical_stability_thresholds() {
 
 #[test]
 fn test_fisher_exact_test_implementation() {
-    use crate::statistical_validation::StatisticalValidator;
+    use crate::statistics::validation::StatisticalValidator;
 
     let validator = StatisticalValidator::new(0.05);
 
@@ -274,7 +274,7 @@ fn test_fisher_exact_test_implementation() {
 
 #[test]
 fn test_memory_decay_formula() {
-    use crate::learner::LearnerModel;
+    use crate::core::learner::LearnerModel;
     use chrono::{Duration, Utc};
 
     let topo = Topology::alphabet();

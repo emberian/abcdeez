@@ -1,5 +1,5 @@
-use crate::learner::*;
-use crate::topology::Topology;
+use crate::core::learner::*;
+use crate::core::topology::Topology;
 use chrono::{Duration, Utc};
 
 #[test]

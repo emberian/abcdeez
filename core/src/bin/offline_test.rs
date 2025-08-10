@@ -4,8 +4,9 @@
 
 use abcdeez_core::prelude::*;
 use abcdeez_core::{
-    AdaptiveScheduler, BayesianLearnerModel, InterventionAction, InterventionSystem, ResponseData,
-    ResponseTimeDistribution,
+    core::{AdaptiveScheduler, BayesianLearnerModel, ResponseData},
+    intervention::{InterventionAction, InterventionSystem},
+    statistics::ResponseTimeDistribution,
 };
 
 fn main() {
@@ -108,7 +109,7 @@ fn main() {
     // Test 7: Test export functionality
     println!("\n7. Testing data export...");
     let updated_learner_model = adaptive_scheduler.get_learner_model().clone();
-    let _export_data = abcdeez_core::export::LearnerDataExport::from_learner_model(
+    let _export_data = abcdeez_core::data::export::LearnerDataExport::from_learner_model(
         &updated_learner_model,
         vec![], // Empty session data for this test
         Some("field_test_001".to_string()),

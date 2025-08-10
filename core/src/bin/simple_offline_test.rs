@@ -3,10 +3,11 @@
 
 use abcdeez_core::prelude::*;
 use abcdeez_core::{
-    AdaptiveScheduler, BayesianLearnerModel, InterventionSystem, ResponseData,
+    core::{AdaptiveScheduler, BayesianLearnerModel, ResponseData},
+    intervention::InterventionSystem,
 };
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🔬 Testing core offline functionality...\n");
 
     // Test 1: Basic topology and learner model

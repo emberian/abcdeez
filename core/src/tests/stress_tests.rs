@@ -2,10 +2,10 @@
 // These tests ensure the system handles extreme conditions gracefully
 
 use crate::bayesian::*;
-use crate::learner::*;
+use crate::core::learner::*;
 use crate::statistics::*;
-use crate::tasks::{Task, TaskType};
-use crate::topology::Topology;
+use crate::tasks::types::{Task, TaskType};
+use crate::core::topology::Topology;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;

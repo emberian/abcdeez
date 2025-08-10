@@ -1,8 +1,8 @@
-use crate::adaptive::AdaptiveScheduler;
+use crate::core::adaptive::AdaptiveScheduler;
 use crate::bayesian::BayesianLearnerModel;
-use crate::learner::LearnerModel;
-use crate::tasks::{Task, TaskGenerator, TaskResponse, TaskType};
-use crate::topology::Topology;
+use crate::core::learner::LearnerModel;
+use crate::tasks::types::{Task, TaskGenerator, TaskResponse, TaskType};
+use crate::core::topology::Topology;
 
 #[test]
 fn test_complete_learning_workflow() {
@@ -182,7 +182,7 @@ fn test_task_session_workflow() {
 
 #[test]
 fn test_extended_task_generation() {
-    use crate::extended_tasks::ExtendedTaskGenerator;
+    use crate::tasks::extended::ExtendedTaskGenerator;
 
     let topology = Topology::alphabet();
     let mut generator = ExtendedTaskGenerator::new(topology);
@@ -234,7 +234,7 @@ fn test_hierarchical_model_workflow() {
 
 #[test]
 fn test_export_workflow() {
-    use crate::export::SessionExporter;
+    use crate::data::export::SessionExporter;
 
     let exporter = SessionExporter::new();
 

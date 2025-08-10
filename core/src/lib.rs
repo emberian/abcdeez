@@ -1,119 +1,106 @@
-// Re-export all core modules for use as a library
-pub mod ab_testing;
-pub mod adaptive;
-pub mod audio_recording;
-pub mod audit_trail;
-pub mod backend;
-pub mod bayesian;
-pub mod boundaries;
-pub mod citation_manager;
-pub mod config;
-pub mod demo;
-pub mod error;
-pub mod experimental_design;
-pub mod experiments;
-pub mod export;
-pub mod extended_tasks;
-pub mod hierarchical_bayes;
-pub mod hints;
-pub mod interaction_tracking;
-pub mod irb_compliance;
-pub mod learner;
-pub mod macro_learning;
-pub mod mixed_effects;
-pub mod multi_session;
-pub mod music;
-pub mod navigation;
-pub mod performance_tracing;
-pub mod power_analysis;
-pub mod prediction;
-pub mod preregistration;
-pub mod protocol_version_control;
-pub mod protocol_versioning;
-#[cfg(feature = "cli")]
-pub mod research_dashboard;
-pub mod seed_management;
-pub mod sensor_integration;
-pub mod statistical_validation;
-pub mod statistics;
-pub mod strategy_mixture;
+//! # AbcDeez Core Learning Library
+//! 
+//! A sophisticated adaptive learning research platform with Bayesian inference,
+//! Expected Information Gain task selection, and comprehensive experimental design.
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use abcdeez_core::prelude::*;
+//!
+//! // Create a learning topology
+//! let topology = Topology::alphabet();
+//!
+//! // Create a learner model
+//! let learner = LearnerModel::new("learner_001", &topology);
+//!
+//! // Create an adaptive scheduler
+//! let scheduler = AdaptiveScheduler::new(learner, topology);
+//!
+//! // Generate and run learning tasks
+//! let task = scheduler.select_next_task();
+//! ```
+
+// Core learning engine
+pub mod core;
+
+// Task generation & management
 pub mod tasks;
-pub mod topology;
-pub mod transfer_learning;
-#[cfg(feature = "cli")]
-pub mod tui;
-#[cfg(feature = "cli")]
+
+// Experimental design & execution
+pub mod experimental;
+
+// Boundary detection & training
+pub mod boundaries;
+
+// Statistical analysis & validation
+pub mod statistics;
+
+// Real-time interventions
+pub mod intervention;
+
+// Configuration management
+pub mod config;
+
+// Data persistence & export
+pub mod data;
+
+// Research infrastructure
+pub mod research;
+
+// Advanced analytics
+pub mod analysis;
+
+// Domain implementations
+pub mod domains;
+
+// Interaction tracking
+pub mod interaction;
+
+// Performance optimization
+pub mod optimization;
+
+// Session management
+pub mod session;
+
+// A/B testing
+pub mod testing;
+
+// User interfaces
 pub mod ui;
+
+// Global types
+pub mod error;
+
+// Remaining standalone modules (to be organized later)
+pub mod backend;
+pub mod demo;
 
 // Test modules
 #[cfg(test)]
 mod tests;
 
 // Re-export commonly used types at the root level
-pub use ab_testing::{ABTest, ABTestFramework, ABTestResults, TestVariant};
-pub use adaptive::AdaptiveScheduler;
-pub use audio_recording::{
-    AudioMetrics, AudioRecorder, AudioSession, ThinkAloudAnalyzer, ThinkAloudSegment,
+pub use core::{
+    AdaptiveScheduler, LearnerModel, LearnerMetrics, BayesianLearnerModel, 
+    Topology, TopologyType, OperationType
 };
-pub use audit_trail::{
-    Actor, ActorType, AuditConfiguration, AuditLevel, AuditTrailManager, EventType, Operation,
-    Outcome, Resource,
+pub use tasks::{Task, TaskGenerator, TaskType, TaskSession};
+pub use experimental::{
+    ExperimentFramework, ExperimentalDesigner, CounterbalancingMethod, 
+    RandomizationType, ExperimentalDesign
 };
-pub use bayesian::{BayesianLearnerModel, ResponseData};
-pub use citation_manager::{
-    Author, BibliographyFormat, BibliographyStyle, CitationManager, MethodologyReport, Publication,
-    Reference, ReferenceType,
-};
-pub use error::{Error, Result};
-pub use experimental_design::{
-    CounterbalancingMethod, ExperimentalDesign, ExperimentalDesigner, RandomizationType,
-};
-pub use export::{LearnerDataExport, PopulationAnalyzer};
-pub use hints::{
-    HintGenerator, HintLevel, InterventionAction, InterventionSystem, StruggleDetector,
-    StruggleLevel,
-};
-pub use interaction_tracking::{
-    InteractionMetrics, InteractionSession, InteractionTracker, KeystrokeEvent, MouseEvent,
-};
-pub use irb_compliance::{ConsentTemplate, IRBApplication, IRBComplianceGenerator, StudySummary};
-pub use learner::{LearnerMetrics, LearnerModel, OperationType};
-pub use mixed_effects::{
-    MixedEffectsAnalyzer, MixedEffectsData, MixedEffectsModel, MixedEffectsResults,
-    RandomEffectSpec,
-};
-pub use multi_session::{
-    LongitudinalAnalysis, MultiSessionExperiment, MultiSessionManager, SessionPlan,
-};
-pub use music::{MusicStructure, MusicTaskGenerator, MusicTheory};
-pub use performance_tracing::{
-    AsyncPerformanceTracker, CriticalPathMonitor, PerformanceMetrics, PerformanceTracker,
-};
-pub use power_analysis::{
-    EffectSizeCalculator, PowerAnalysis, PowerAnalyzer, RealTimeEffectMonitor, RealTimeMonitor,
-};
-pub use prediction::{PerformancePredictor, ScheduleOptimizer};
-pub use protocol_version_control::{
-    CollaboratorRole, ProtocolChange, ProtocolSnapshot, ProtocolVersion, ProtocolVersionControl,
-    ProtocolVersionManager,
-};
-pub use protocol_versioning::{ProtocolRepository, SemanticVersion};
-pub use seed_management::{
-    ExperimentSeed, RandomizationEvent, ReproducibilityManifest, SeedManager, SessionSeed,
-};
-pub use sensor_integration::{
-    MockEEGSensor, MockEyeTracker, MockGSRSensor, SensorConfig, SensorManager, SensorSession,
-    SensorType,
-};
-pub use statistical_validation::{
-    AssumptionChecks, HomoscedasticityTest, NormalityTest, OutlierAnalysis, StatisticalValidator,
+pub use config::{LearnerConfig, SystemConfig, PopulationType, DomainType, LearningGoal};
+pub use intervention::{
+    InterventionSystem, StruggleDetector, HintGenerator, HintLevel, 
+    StruggleLevel, InterventionAction
 };
 pub use statistics::{
-    DetailedStatistics, ExGaussianModel, ExGaussianParameters, ResponseTimeDistribution,
-    SessionAnalyzer, StrategyType,
+    StatisticalValidator, PowerAnalyzer, MixedEffectsAnalyzer, 
+    ResponseTimeDistribution
 };
-pub use tasks::{Task, TaskGenerator, TaskSession, TaskType};
-pub use topology::{Edge, Node, Topology, TopologyType};
+pub use data::{LearnerDataExport, PopulationAnalyzer};
+pub use error::{Error, Result};
 
 // Version info
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -121,7 +108,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::{
-        AdaptiveScheduler, LearnerMetrics, LearnerModel, MusicStructure, MusicTheory, Task,
-        TaskGenerator, TaskType, Topology, TopologyType,
+        AdaptiveScheduler, LearnerModel, LearnerMetrics, BayesianLearnerModel,
+        Task, TaskGenerator, TaskType, Topology, TopologyType,
+        ExperimentFramework, SystemConfig, InterventionSystem,
+        Error, Result
     };
 }

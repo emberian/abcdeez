@@ -3,8 +3,8 @@ use xilem::{
     Color, TextAlignment, WidgetView,
 };
 
-use crate::models::*;
-use crate::AppData;
+use crate::core::models::*;
+use crate::ui::AppData;
 use std::sync::Arc;
 
 // Reusable card component

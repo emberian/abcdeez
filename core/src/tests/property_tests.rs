@@ -2,9 +2,9 @@
 // These tests verify invariants and mathematical properties
 
 use crate::bayesian::*;
-use crate::learner::LearnerModel;
+use crate::core::learner::LearnerModel;
 use crate::statistics::*;
-use crate::topology::Topology;
+use crate::core::topology::Topology;
 use proptest::prelude::*;
 
 // Distribution Properties
