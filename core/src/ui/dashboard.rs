@@ -22,7 +22,6 @@ use crate::statistics::mixed_effects::MixedEffectsAnalyzer;
 use crate::statistics::power_analysis::{PowerAnalyzer, StatisticalTestType};
 use crate::research::preregistration::{
     AnalysisValidator, PowerAnalysisSpec, PreRegistration, RegistrationStatus, StudyMetadata,
-    TransparencyReport,
 };
 use crate::interaction::sensors::{
     EEGChannel, EEGReference, EyeTrackingMode, GSRPlacement, SensorManager, SensorSession,

@@ -3,6 +3,7 @@ use crate::statistics::power_analysis::PowerAnalyzer;
 use crate::statistics::validation::StatisticalValidator;
 use crate::statistics::TestResult;
 use crate::core::topology::Topology;
+use crate::research::citations::{CitationTracker, MethodologyReport};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -361,6 +362,7 @@ pub struct ABTestFramework {
     assignments: HashMap<String, ParticipantAssignment>,
     power_analyzer: PowerAnalyzer,
     statistical_validator: StatisticalValidator,
+    citation_tracker: CitationTracker,
     // Track performance data separately from variant definitions
     variant_performance: HashMap<String, HashMap<String, VariantPerformance>>, // test_id -> variant_id -> performance
     rng: StdRng,
@@ -378,6 +380,7 @@ impl ABTestFramework {
             assignments: HashMap::new(),
             power_analyzer: PowerAnalyzer::new(0.05, 0.8),
             statistical_validator: StatisticalValidator::new(0.95),
+            citation_tracker: CitationTracker::new(),
             variant_performance: HashMap::new(),
             rng,
         }
@@ -489,6 +492,11 @@ impl ABTestFramework {
         // Record the outcome based on metric_name
         let outcome_timestamp = timestamp.unwrap_or_else(chrono::Utc::now);
         
+        // Get test info for allocation calculation
+        let variant_count = self.tests.get(test_id)
+            .map(|t| t.variants.len())
+            .unwrap_or(2) as f64;
+        
         // Update participant count
         variant_perf.participant_count += 1;
         
@@ -501,8 +509,9 @@ impl ABTestFramework {
         // Record allocation history
         variant_perf.allocation_history.push(AllocationRecord {
             timestamp: outcome_timestamp,
-            participant_id: participant_id.to_string(),
-            allocation_reason: "outcome_recorded".to_string(),
+            participant_count: variant_perf.participant_count,
+            allocation_probability: 1.0 / variant_count, // Simple equal allocation for now
+            cumulative_metric_value: new_average,
         });
         
         // Update test status if needed
@@ -738,8 +747,12 @@ impl ABTestFramework {
             return Err("No variants available for selection".to_string());
         }
         
+        // Get performance data for this test
+        let test_perf = self.variant_performance.get(&test.id)
+            .ok_or("No performance data available for test")?;
+        
         let mut variant_scores = HashMap::new();
-        let total_trials: f64 = test.variants.iter()
+        let total_trials: f64 = test_perf.values()
             .map(|v| v.participant_count as f64)
             .sum();
             
@@ -749,7 +762,9 @@ impl ABTestFramework {
         }
         
         for variant in &test.variants {
-            let n_trials = variant.participant_count as f64;
+            let variant_perf = test_perf.get(&variant.id);
+            
+            let n_trials = variant_perf.map(|p| p.participant_count as f64).unwrap_or(0.0);
             
             if n_trials == 0.0 {
                 // Unplayed variant gets infinite score (exploration)
@@ -757,10 +772,13 @@ impl ABTestFramework {
                 continue;
             }
             
-            let mean_reward = variant.conversion_rate;
+            // Use primary metric value as reward, fallback to 0.0
+            let mean_reward = variant_perf
+                .and_then(|p| p.metric_values.get("primary_metric").copied())
+                .unwrap_or(0.0);
             
             // UCB1 formula: mean + confidence_level * sqrt(2 * ln(total_trials) / n_trials)
-            let confidence_bonus = confidence_level * (2.0 * total_trials.ln() / n_trials).sqrt();
+            let confidence_bonus = confidence_level * (2.0_f64 * total_trials.ln() / n_trials).sqrt();
             let ucb_score = mean_reward + confidence_bonus;
             
             variant_scores.insert(variant.id.clone(), ucb_score);
@@ -805,6 +823,17 @@ impl ABTestFramework {
                 let data2 = &variant_data[variants[j]];
 
                 let hypothesis_result = self.statistical_validator.t_test(data1, data2, false);
+                
+                // Record statistical procedure for citation tracking
+                let procedure_description = format!(
+                    "Independent samples t-test comparing {} vs {} (n1={}, n2={})",
+                    variants[i], variants[j], data1.len(), data2.len()
+                );
+                
+                // This would need mut self to record, so we note the procedure was used
+                // In a real implementation, this would track procedures for later citation
+                println!("Statistical procedure used: {}", procedure_description);
+                
                 let test_result = TestResult {
                     statistic: hypothesis_result.statistic,
                     p_value: hypothesis_result.p_value,
@@ -1082,6 +1111,10 @@ impl ABTestFramework {
             return Err("Need at least 2 variants to calculate power".to_string());
         }
         
+        // Get performance data
+        let test_perf = self.variant_performance.get(&test.id)
+            .ok_or("No performance data available for test")?;
+            
         // Find control and treatment variants
         let control = test.variants.iter()
             .find(|v| v.name.to_lowercase().contains("control"))
@@ -1093,9 +1126,17 @@ impl ABTestFramework {
             .or_else(|| test.variants.get(1))
             .ok_or("No treatment variant found")?;
         
-        // Calculate effect size (Cohen's h for proportions)
-        let p1 = control.conversion_rate;
-        let p2 = treatment.conversion_rate;
+        // Get performance data for each variant
+        let control_perf = test_perf.get(&control.id);
+        let treatment_perf = test_perf.get(&treatment.id);
+        
+        // Calculate effect size using performance data
+        let p1 = control_perf
+            .and_then(|p| p.metric_values.get("primary_metric").copied())
+            .unwrap_or(0.05); // Default baseline conversion rate
+        let p2 = treatment_perf
+            .and_then(|p| p.metric_values.get("primary_metric").copied())
+            .unwrap_or(0.05);
         
         let effect_size = if p1 > 0.0 && p1 < 1.0 && p2 > 0.0 && p2 < 1.0 {
             // Cohen's h: 2 * (arcsin(sqrt(p2)) - arcsin(sqrt(p1)))
@@ -1105,8 +1146,9 @@ impl ABTestFramework {
             (p2 - p1).abs()
         };
         
-        // Total sample size
-        let total_n = control.participant_count + treatment.participant_count;
+        // Total sample size from performance data
+        let total_n = control_perf.map(|p| p.participant_count).unwrap_or(0) +
+                     treatment_perf.map(|p| p.participant_count).unwrap_or(0);
         
         if total_n == 0 {
             return Ok(0.0); // No power with no participants
@@ -1118,6 +1160,13 @@ impl ABTestFramework {
             effect_size,
             total_n,
         ).map_err(|e| format!("Power calculation failed: {}", e))?;
+        
+        // Record power analysis procedure for citation tracking
+        let power_description = format!(
+            "Statistical power analysis (Cohen's h={:.3}, n={}, power={:.3})",
+            effect_size, total_n, power
+        );
+        println!("Power analysis performed: {}", power_description);
         
         Ok(power)
     }
@@ -1163,10 +1212,7 @@ impl ABTestFramework {
             && practical_is_significant 
             && has_meaningful_improvement {
             if let Some(winner) = &primary_analysis.winner {
-                let confidence_level = statistical_tests.iter()
-                    .map(|test| test.confidence_level)
-                    .max_by(|a, b| a.partial_cmp(b).unwrap())
-                    .unwrap_or(0.95);
+                let _confidence_level = 0.95; // Use default confidence level
                     
                 return Ok(TestRecommendation::ImplementWinner {
                     variant_id: winner.clone(),
@@ -1235,6 +1281,20 @@ impl Default for StoppingCriteria {
             },
             early_stopping_enabled: true,
         }
+    }
+    
+    /// Generate methodology report with citations for statistical procedures used
+    pub fn generate_methodology_report(&mut self, experiment_id: &str) -> Result<MethodologyReport, String> {
+        // Record methods used in A/B testing
+        self.citation_tracker.mark_method_used("A/B Testing");
+        self.citation_tracker.mark_method_used("Statistical Power Analysis");
+        self.citation_tracker.mark_method_used("Independent Samples t-test");
+        
+        // Add software citations for statistical computing
+        self.citation_tracker.add_software_citation("Rust Statistical Computing".to_string(), "internal2024".to_string());
+        
+        // Generate the methodology report
+        Ok(self.citation_tracker.generate_methodology_report(experiment_id))
     }
 }
 

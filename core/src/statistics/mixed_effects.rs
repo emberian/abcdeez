@@ -610,11 +610,16 @@ impl MixedEffectsAnalyzer {
     }
 
     fn update_variance_components(&self, model: &mut MixedEffectsModel, data: &MixedEffectsData) {
+        // Use actual data to improve variance component estimates
+        let residual_variance = self.calculate_residual_variance(model, data);
+        
         for random_effect in &mut model.random_effects {
             if let Some(intercept_component) =
                 random_effect.variance_components.get_mut("Intercept")
             {
-                // Calculate between-group variance
+                // Calculate between-group variance using actual data
+                let group_variances = self.calculate_group_variances(data, &random_effect.grouping_factor);
+                
                 let group_effects: Vec<f64> = random_effect
                     .group_effects
                     .values()
@@ -622,24 +627,126 @@ impl MixedEffectsAnalyzer {
                     .cloned()
                     .collect();
 
-                if !group_effects.is_empty() {
-                    let between_variance = group_effects
+                if !group_effects.is_empty() && !group_variances.is_empty() {
+                    // Combine model-based and data-based variance estimates
+                    let model_variance = group_effects
                         .iter()
                         .map(|&effect| effect.powi(2))
                         .sum::<f64>()
                         / group_effects.len() as f64;
+                    
+                    let data_variance = group_variances.iter().sum::<f64>() / group_variances.len() as f64;
+                    
+                    // Weighted combination (favor data when available)
+                    let weight_data = 0.7;
+                    let weight_model = 0.3;
+                    let combined_variance = (weight_data * data_variance + weight_model * model_variance).max(0.01);
 
-                    intercept_component.variance = between_variance.max(0.01); // Prevent negative variance
+                    intercept_component.variance = combined_variance;
                     intercept_component.standard_deviation = intercept_component.variance.sqrt();
 
-                    // Simple confidence interval (would use likelihood profiling in practice)
+                    // Improved confidence interval using data-based estimates
+                    let standard_error = intercept_component.standard_deviation / (data.observations.len() as f64).sqrt();
+                    let margin = 1.96 * standard_error; // 95% CI
                     intercept_component.confidence_interval = (
-                        intercept_component.variance * 0.5,
-                        intercept_component.variance * 2.0,
+                        (intercept_component.variance - margin).max(0.01),
+                        intercept_component.variance + margin,
                     );
                 }
             }
         }
+        
+        // Store residual variance in model fit statistics if available
+        if let Some(ref mut fit_stats) = model.model_fit {
+            // Could store residual_variance here if ModelFitStatistics has this field
+            // For now, the residual variance is calculated but not stored
+        }
+    }
+    
+    /// Calculate residual variance from actual data
+    fn calculate_residual_variance(&self, model: &MixedEffectsModel, data: &MixedEffectsData) -> f64 {
+        let mut residual_sum_squares = 0.0;
+        let n_observations = data.observations.len();
+        
+        // Simple residual calculation based on observations and fitted values
+        for (i, &observation) in data.observations.iter().enumerate() {
+            // Calculate predicted value from fixed effects (simplified)
+            let mut predicted = if !model.fixed_effects.is_empty() {
+                model.fixed_effects[0] // Intercept
+            } else {
+                0.0
+            };
+            
+            // Add predictor contributions if available
+            if let Some((predictor_name, predictors)) = data.predictors.iter().next() {
+                if let Some(&predictor_value) = predictors.get(i) {
+                    if model.fixed_effects.len() > 1 {
+                        predicted += model.fixed_effects[1] * predictor_value;
+                    }
+                }
+            }
+            
+            // Add random effects (simplified - use group mean)
+            if let Some(random_effect) = model.random_effects.first() {
+                let subject_id = data.subject_ids.get(i).unwrap_or(&"unknown".to_string());
+                if let Some(effects) = random_effect.group_effects.get(subject_id) {
+                    if let Some(&effect) = effects.get(0) { // Intercept effect
+                        predicted += effect;
+                    }
+                }
+            }
+            
+            // Calculate residual
+            let residual = observation - predicted;
+            residual_sum_squares += residual * residual;
+        }
+        
+        if n_observations > 0 {
+            residual_sum_squares / n_observations as f64
+        } else {
+            1.0 // Default residual variance
+        }
+    }
+    
+    /// Calculate variance within each group using actual data
+    fn calculate_group_variances(&self, data: &MixedEffectsData, group_variable: &str) -> Vec<f64> {
+        let mut group_data: HashMap<String, Vec<f64>> = HashMap::new();
+        
+        // Check if we have grouping factors for this variable
+        if let Some(group_assignments) = data.grouping_factors.get(group_variable) {
+            // Collect response values by group
+            for (i, group_id) in group_assignments.iter().enumerate() {
+                if let Some(&observation) = data.observations.get(i) {
+                    group_data.entry(group_id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(observation);
+                }
+            }
+        } else {
+            // Fallback: use subject_ids as groups
+            for (i, subject_id) in data.subject_ids.iter().enumerate() {
+                if let Some(&observation) = data.observations.get(i) {
+                    group_data.entry(subject_id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(observation);
+                }
+            }
+        }
+        
+        // Calculate variance for each group
+        group_data.values()
+            .filter_map(|values| {
+                if values.len() > 1 {
+                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                    let variance = values.iter()
+                        .map(|x| (x - mean).powi(2))
+                        .sum::<f64>() / (values.len() - 1) as f64;
+                    Some(variance)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn calculate_log_likelihood(&self, model: &MixedEffectsModel, data: &MixedEffectsData) -> f64 {

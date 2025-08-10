@@ -4,7 +4,6 @@ use crate::session::multi_session::MultiSessionExperiment;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use std::io::Write;
 use std::path::PathBuf;
 
 /// Version Control System for Experimental Protocols

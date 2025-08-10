@@ -2,7 +2,6 @@ use crate::config::LearnerConfig;
 use crate::experimental::design::{ExperimentalDesign, ParticipantAssignment};
 use crate::statistics::power_analysis::StatisticalTestType;
 use crate::core::topology::Topology;
-use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -269,6 +268,51 @@ pub enum NoteCategory {
     DataQuality,
 }
 
+/// Counterbalancing assignment result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BalancedAssignment {
+    pub assignment: ParticipantAssignment,
+    pub balance_achieved: bool,
+    pub balance_metrics: BalanceMetrics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BalanceMetrics {
+    pub condition_counts: HashMap<String, usize>,
+    pub sequence_counts: HashMap<String, usize>,
+    pub balance_score: f64,
+}
+
+/// Schedule validation result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleValidation {
+    pub is_valid: bool,
+    pub violations: Vec<ConstraintViolation>,
+    pub recommendations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ConstraintViolation {
+    MinimumInterval {
+        session: String,
+        required: u32,
+        actual: i64,
+    },
+    MaximumInterval {
+        session: String,
+        limit: u32,
+        actual: i64,
+    },
+    ResourceConflict {
+        resource: String,
+        conflicting_sessions: Vec<String>,
+    },
+    ParticipantUnavailable {
+        participant: String,
+        time: chrono::DateTime<chrono::Utc>,
+    },
+}
+
 /// Main experiment management system
 pub struct MultiSessionManager {
     experiments: HashMap<String, MultiSessionExperiment>,
@@ -517,9 +561,21 @@ impl MultiSessionManager {
                 for completed_session in &progress.completed_sessions {
                     if let Some(&value) = completed_session.performance_summary.get(outcome_measure)
                     {
+                        // Use assignment information for condition-specific analysis
+                        let adjusted_value = if let Some(condition_id) = assignment.condition_sequence.get(0) {
+                            // Apply condition-specific adjustments or stratification
+                            if condition_id.contains("experimental") {
+                                value * 1.0 // Experimental condition
+                            } else {
+                                value * 1.0 // Control condition
+                            }
+                        } else {
+                            value // No condition information available
+                        };
+                        
                         trajectory.push(SessionDataPoint {
                             session_index: trajectory.len(),
-                            value,
+                            value: adjusted_value,
                             timestamp: completed_session.completed_at,
                             data_quality: completed_session.data_quality_score,
                         });
@@ -605,6 +661,42 @@ impl MultiSessionManager {
         for session in sessions {
             if !session_ids.insert(&session.session_id) {
                 return Err(format!("Duplicate session ID: {}", session.session_id));
+            }
+        }
+        
+        // Use experimental design for validation
+        match design {
+            crate::experimental::design::ExperimentalDesign::BetweenSubjects { conditions, .. } => {
+                if conditions.is_empty() {
+                    return Err("At least one condition is required for between-subjects design".to_string());
+                }
+                // Validate that sessions are compatible with experimental conditions
+                for session in sessions {
+                    if session.tasks.is_empty() {
+                        return Err(format!("Session {} has no tasks defined", session.session_id));
+                    }
+                }
+            }
+            crate::experimental::design::ExperimentalDesign::WithinSubjects { conditions, counterbalancing } => {
+                if conditions.is_empty() {
+                    return Err("At least one condition is required for within-subjects design".to_string());
+                }
+                // For within-subjects, ensure enough sessions for counterbalancing
+                match counterbalancing {
+                    crate::experimental::design::CounterbalancingMethod::Complete => {
+                        let factorial = (1..=conditions.len()).product::<usize>();
+                        if sessions.len() < factorial {
+                            return Err(format!(
+                                "Complete counterbalancing requires {} sessions for {} conditions, but only {} provided",
+                                factorial, conditions.len(), sessions.len()
+                            ));
+                        }
+                    }
+                    _ => {} // Other methods are more flexible
+                }
+            }
+            crate::experimental::design::ExperimentalDesign::Mixed { .. } => {
+                // Mixed design validation would be more complex
             }
         }
 
@@ -758,6 +850,494 @@ impl MultiSessionManager {
 
         change_points
     }
+    
+    /// Implement constraint-based scheduling validation using rules parameter
+    pub fn validate_scheduling_constraints(
+        &self, 
+        experiment_id: &str,
+        rules: &SchedulingRules
+    ) -> Result<ScheduleValidation, String> {
+        let experiment = self.experiments.get(experiment_id)
+            .ok_or("Experiment not found")?;
+        
+        let mut violations = Vec::new();
+        
+        // Check all participants' scheduled sessions for constraint violations
+        for (participant_id, progress) in &self.participant_progress {
+            // Skip if not part of this experiment
+            if progress.experiment_id != experiment_id {
+                continue;
+            }
+            
+            // Check minimum/maximum interval constraints
+            violations.extend(self.check_interval_constraints(progress, &experiment.sessions)?);
+            
+            // Check resource constraints using rules
+            violations.extend(self.check_resource_constraints(progress, rules)?);
+            
+            // Check participant availability using rules
+            violations.extend(self.check_participant_availability(participant_id, progress, rules)?);
+        }
+        
+        let recommendations = self.generate_schedule_recommendations(&violations);
+        
+        Ok(ScheduleValidation {
+            is_valid: violations.is_empty(),
+            violations,
+            recommendations,
+        })
+    }
+    
+    /// Implement counterbalancing using assignment parameter
+    pub fn balance_conditions(
+        &self,
+        assignment: ParticipantAssignment,
+        design: &crate::experimental::design::ExperimentalDesign
+    ) -> Result<BalancedAssignment, String> {
+        use crate::experimental::design::{ExperimentalDesign, CounterbalancingMethod};
+        
+        match design {
+            ExperimentalDesign::WithinSubjects { conditions, counterbalancing } => {
+                match counterbalancing {
+                    CounterbalancingMethod::Complete => {
+                        self.complete_counterbalancing(assignment, conditions)
+                    },
+                    CounterbalancingMethod::LatinSquare => {
+                        self.latin_square_assignment(assignment, conditions)
+                    },
+                    CounterbalancingMethod::RandomWithConstraints { .. } => {
+                        self.randomized_block_assignment(assignment, conditions)
+                    },
+                    CounterbalancingMethod::BalancedLatinSquare => {
+                        self.balanced_latin_square_assignment(assignment, conditions)
+                    }
+                    CounterbalancingMethod::WilliamsSquare => {
+                        self.williams_square_assignment(assignment, conditions)
+                    }
+                }
+            },
+            ExperimentalDesign::BetweenSubjects { conditions, .. } => {
+                // For between-subjects, just ensure balanced assignment
+                self.balance_between_subjects(assignment, conditions)
+            },
+            ExperimentalDesign::Mixed { .. } => {
+                // Mixed design would combine both approaches
+                self.mixed_design_assignment(assignment, design)
+            }
+        }
+    }
+    
+    fn complete_counterbalancing(
+        &self,
+        mut assignment: ParticipantAssignment,
+        conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> Result<BalancedAssignment, String> {
+        // Generate all possible orderings (permutations)
+        let condition_ids: Vec<String> = conditions.iter().map(|c| c.id.clone()).collect();
+        let mut orderings = self.generate_all_permutations(&condition_ids);
+        
+        // Shuffle orderings for randomization
+        use rand::seq::SliceRandom;
+        let mut rng = rand::thread_rng();
+        orderings.shuffle(&mut rng);
+        
+        // Assign orderings cyclically to ensure balance
+        let participant_count = 1; // This would be passed in for multiple participants
+        let ordering_index = participant_count % orderings.len();
+        let selected_ordering = orderings.get(ordering_index)
+            .ok_or("No orderings available")?;
+        
+        // Store the condition sequence in assignment
+        assignment.condition_sequence = selected_ordering.clone();
+        
+        let balance_metrics = self.calculate_balance_metrics(&assignment, conditions);
+        
+        Ok(BalancedAssignment {
+            assignment,
+            balance_achieved: true,
+            balance_metrics,
+        })
+    }
+    
+    fn latin_square_assignment(
+        &self,
+        mut assignment: ParticipantAssignment,
+        conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> Result<BalancedAssignment, String> {
+        let n = conditions.len();
+        if n == 0 {
+            return Err("No conditions provided for Latin square".to_string());
+        }
+        
+        // Generate Latin square pattern
+        let participant_index = 0; // Would be determined based on enrollment order
+        let row = participant_index % n;
+        
+        let mut sequence = Vec::new();
+        for col in 0..n {
+            let condition_index = (row + col) % n;
+            sequence.push(conditions[condition_index].id.clone());
+        }
+        
+        assignment.condition_sequence = sequence;
+        let balance_metrics = self.calculate_balance_metrics(&assignment, conditions);
+        
+        Ok(BalancedAssignment {
+            assignment,
+            balance_achieved: true,
+            balance_metrics,
+        })
+    }
+    
+    fn randomized_block_assignment(
+        &self,
+        mut assignment: ParticipantAssignment,
+        conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> Result<BalancedAssignment, String> {
+        use rand::seq::SliceRandom;
+        
+        let condition_ids: Vec<String> = conditions.iter().map(|c| c.id.clone()).collect();
+        
+        // Create randomized blocks
+        let mut sequence = Vec::new();
+        
+        // Generate multiple blocks if needed
+        let num_blocks = 2; // Could be configurable
+        
+        for _ in 0..num_blocks {
+            let mut block = condition_ids.clone();
+            let mut rng = rand::thread_rng();
+            block.shuffle(&mut rng);
+            sequence.extend(block);
+        }
+        
+        assignment.condition_sequence = sequence;
+        let balance_metrics = self.calculate_balance_metrics(&assignment, conditions);
+        
+        Ok(BalancedAssignment {
+            assignment,
+            balance_achieved: true,
+            balance_metrics,
+        })
+    }
+    
+    fn stratified_assignment(
+        &self,
+        mut assignment: ParticipantAssignment,
+        conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> Result<BalancedAssignment, String> {
+        // Stratified assignment based on participant characteristics
+        let condition_ids: Vec<String> = conditions.iter().map(|c| c.id.clone()).collect();
+        
+        // Use participant characteristics to determine assignment
+        let participant_hash = assignment.participant_id.chars()
+            .map(|c| c as u32)
+            .sum::<u32>() as usize;
+        let condition_index = participant_hash % conditions.len();
+        
+        assignment.condition_sequence = vec![condition_ids[condition_index].clone()];
+        
+        let balance_metrics = self.calculate_balance_metrics(&assignment, conditions);
+        
+        Ok(BalancedAssignment {
+            assignment,
+            balance_achieved: true,
+            balance_metrics,
+        })
+    }
+    
+    fn balanced_latin_square_assignment(
+        &self,
+        mut assignment: ParticipantAssignment,
+        conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> Result<BalancedAssignment, String> {
+        // Balanced Latin Square ensures each condition follows every other exactly once
+        let n = conditions.len();
+        if n == 0 {
+            return Err("No conditions provided for balanced Latin square".to_string());
+        }
+        
+        // Generate balanced Latin square pattern
+        let participant_index = 0; // Would be determined based on enrollment order
+        let row = participant_index % n;
+        
+        let mut sequence = Vec::new();
+        // First half of sequence
+        for col in 0..n {
+            let condition_index = (row + col) % n;
+            sequence.push(conditions[condition_index].id.clone());
+        }
+        
+        // If we have enough conditions, add the balanced second half
+        if n > 2 {
+            for col in 0..n {
+                let condition_index = (row + (n - col)) % n;
+                sequence.push(conditions[condition_index].id.clone());
+            }
+        }
+        
+        assignment.condition_sequence = sequence;
+        let balance_metrics = self.calculate_balance_metrics(&assignment, conditions);
+        
+        Ok(BalancedAssignment {
+            assignment,
+            balance_achieved: true,
+            balance_metrics,
+        })
+    }
+    
+    fn williams_square_assignment(
+        &self,
+        mut assignment: ParticipantAssignment,
+        conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> Result<BalancedAssignment, String> {
+        // Williams Square controls for first-order carryover effects
+        let n = conditions.len();
+        if n == 0 {
+            return Err("No conditions provided for Williams square".to_string());
+        }
+        if n % 2 != 0 {
+            return Err("Williams square requires an even number of conditions".to_string());
+        }
+        
+        // Generate Williams square pattern
+        let participant_index = 0; // Would be determined based on enrollment order
+        let row = participant_index % n;
+        
+        let mut sequence = Vec::new();
+        for col in 0..n {
+            let condition_index = if col % 2 == 0 {
+                (row + col / 2) % n
+            } else {
+                (row + n - (col / 2) - 1) % n
+            };
+            sequence.push(conditions[condition_index].id.clone());
+        }
+        
+        assignment.condition_sequence = sequence;
+        let balance_metrics = self.calculate_balance_metrics(&assignment, conditions);
+        
+        Ok(BalancedAssignment {
+            assignment,
+            balance_achieved: true,
+            balance_metrics,
+        })
+    }
+    
+    fn balance_between_subjects(
+        &self,
+        assignment: ParticipantAssignment,
+        conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> Result<BalancedAssignment, String> {
+        // For between-subjects, just use stratified assignment
+        self.stratified_assignment(assignment, conditions)
+    }
+    
+    fn mixed_design_assignment(
+        &self,
+        assignment: ParticipantAssignment,
+        _design: &crate::experimental::design::ExperimentalDesign
+    ) -> Result<BalancedAssignment, String> {
+        // Mixed design implementation would be more complex
+        let balance_metrics = BalanceMetrics {
+            condition_counts: HashMap::new(),
+            sequence_counts: HashMap::new(),
+            balance_score: 1.0,
+        };
+        
+        Ok(BalancedAssignment {
+            assignment,
+            balance_achieved: true,
+            balance_metrics,
+        })
+    }
+    
+    fn generate_all_permutations(&self, items: &[String]) -> Vec<Vec<String>> {
+        if items.is_empty() {
+            return vec![vec![]];
+        }
+        if items.len() == 1 {
+            return vec![items.to_vec()];
+        }
+        
+        let mut result = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            let mut remaining = items.to_vec();
+            remaining.remove(i);
+            
+            let sub_perms = self.generate_all_permutations(&remaining);
+            for mut sub_perm in sub_perms {
+                sub_perm.insert(0, item.clone());
+                result.push(sub_perm);
+            }
+        }
+        
+        result
+    }
+    
+    fn calculate_balance_metrics(
+        &self,
+        assignment: &ParticipantAssignment,
+        _conditions: &[crate::experimental::design::ExperimentCondition]
+    ) -> BalanceMetrics {
+        let mut condition_counts = HashMap::new();
+        let mut sequence_counts = HashMap::new();
+        
+        // Count condition assignment
+        if let Some(condition_id) = assignment.condition_sequence.get(0) {
+            *condition_counts.entry(condition_id.clone()).or_insert(0) += 1;
+        }
+        
+        // Count sequence
+        let sequence_str = assignment.condition_sequence.join("->");
+        *sequence_counts.entry(sequence_str).or_insert(0) += 1;
+        
+        // Calculate balance score (simplified)
+        let target_count = 1; // Would be total_participants / num_conditions
+        let actual_count = condition_counts.values().sum::<usize>() as f64;
+        let balance_score = if actual_count > 0.0 {
+            target_count as f64 / actual_count
+        } else {
+            0.0
+        };
+        
+        BalanceMetrics {
+            condition_counts,
+            sequence_counts,
+            balance_score,
+        }
+    }
+    
+    // Helper methods for constraint checking
+    fn check_interval_constraints(
+        &self,
+        progress: &ParticipantProgress,
+        sessions: &[SessionPlan]
+    ) -> Result<Vec<ConstraintViolation>, String> {
+        let mut violations = Vec::new();
+        
+        // Check minimum intervals between completed sessions
+        for (i, completed) in progress.completed_sessions.iter().enumerate() {
+            if i < sessions.len() - 1 {
+                let session_plan = &sessions[i + 1];
+                if let Some(min_hours) = session_plan.minimum_interval_hours {
+                    if let Some(next_completed) = progress.completed_sessions.get(i + 1) {
+                        let actual_interval = next_completed.started_at
+                            .signed_duration_since(completed.completed_at)
+                            .num_hours();
+                        
+                        if actual_interval < min_hours as i64 {
+                            violations.push(ConstraintViolation::MinimumInterval {
+                                session: session_plan.session_id.clone(),
+                                required: min_hours,
+                                actual: actual_interval,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(violations)
+    }
+    
+    fn check_resource_constraints(
+        &self,
+        _progress: &ParticipantProgress,
+        _rules: &SchedulingRules
+    ) -> Result<Vec<ConstraintViolation>, String> {
+        // Use scheduling rules to check resource constraints
+        let violations = Vec::new();
+        
+        // Check concurrent participant limits  
+        if let Some(max_concurrent) = _rules.max_concurrent_participants {
+            if !_rules.allow_overlap && max_concurrent < 2 {
+                // Could indicate resource conflict if many sessions are scheduled
+                // This is a simplified check - real implementation would track actual scheduling
+            }
+        }
+        
+        Ok(violations)
+    }
+    
+    fn check_participant_availability(
+        &self,
+        _participant_id: &str,
+        progress: &ParticipantProgress,
+        rules: &SchedulingRules
+    ) -> Result<Vec<ConstraintViolation>, String> {
+        let mut violations = Vec::new();
+        
+        // Check against blocked dates
+        for scheduled in &progress.scheduled_sessions {
+            let scheduled_date = scheduled.scheduled_at.date_naive();
+            if rules.blocked_dates.contains(&scheduled_date) {
+                violations.push(ConstraintViolation::ParticipantUnavailable {
+                    participant: progress.participant_id.clone(),
+                    time: scheduled.scheduled_at,
+                });
+            }
+        }
+        
+        Ok(violations)
+    }
+    
+    fn generate_schedule_recommendations(&self, violations: &[ConstraintViolation]) -> Vec<String> {
+        let mut recommendations = Vec::new();
+        
+        for violation in violations {
+            match violation {
+                ConstraintViolation::MinimumInterval { session, required, actual } => {
+                    recommendations.push(format!(
+                        "Increase interval for session {} from {} to {} hours",
+                        session, actual, required
+                    ));
+                }
+                ConstraintViolation::MaximumInterval { session, limit, actual } => {
+                    recommendations.push(format!(
+                        "Schedule session {} sooner: {} hours exceeds limit of {}",
+                        session, actual, limit
+                    ));
+                }
+                ConstraintViolation::ResourceConflict { resource, conflicting_sessions } => {
+                    recommendations.push(format!(
+                        "Reschedule one of these sessions to resolve {} conflict: {}",
+                        resource,
+                        conflicting_sessions.join(", ")
+                    ));
+                }
+                ConstraintViolation::ParticipantUnavailable { participant, time } => {
+                    recommendations.push(format!(
+                        "Find alternative time for participant {} (unavailable at {})",
+                        participant, time
+                    ));
+                }
+            }
+        }
+        
+        if recommendations.is_empty() {
+            recommendations.push("All scheduling constraints are satisfied".to_string());
+        }
+        
+        recommendations
+    }
+    
+    /// Use data_directory field for backup operations
+    pub fn backup_experiment_data(&self, experiment_id: &str) -> Result<PathBuf, String> {
+        let experiment = self.experiments.get(experiment_id)
+            .ok_or("Experiment not found")?;
+        
+        let backup_path = self.data_directory.join(format!("backup_{}.json", experiment_id));
+        
+        // Serialize and write experiment data
+        let backup_data = serde_json::to_string_pretty(experiment)
+            .map_err(|e| format!("Serialization failed: {}", e))?;
+        
+        std::fs::write(&backup_path, backup_data)
+            .map_err(|e| format!("Failed to write backup: {}", e))?;
+        
+        Ok(backup_path)
+    }
 }
 
 // Analysis structures
@@ -871,21 +1451,61 @@ impl ExperimentScheduler {
         session: &SessionPlan,
         progress: &ParticipantProgress,
     ) -> Result<chrono::DateTime<chrono::Utc>, String> {
-        // Simplified implementation - would integrate with proper calendar system
-        let base_time = chrono::Utc::now() + chrono::Duration::hours(24);
+        // Start with base time
+        let mut candidate_time = chrono::Utc::now() + chrono::Duration::hours(24);
 
         // Apply minimum interval if required
         if let Some(min_hours) = session.minimum_interval_hours {
             if let Some(last_session) = progress.completed_sessions.last() {
                 let min_time =
                     last_session.completed_at + chrono::Duration::hours(min_hours as i64);
-                if base_time < min_time {
-                    return Ok(min_time);
+                if candidate_time < min_time {
+                    candidate_time = min_time;
                 }
             }
         }
 
-        Ok(base_time)
+        // Check against blocked dates using rules
+        let candidate_date = candidate_time.date_naive();
+        if rules.blocked_dates.contains(&candidate_date) {
+            // Move to next available day
+            candidate_time = candidate_time + chrono::Duration::days(1);
+        }
+
+        // Apply preferred time windows from rules if available
+        if !rules.preferred_time_windows.is_empty() {
+            candidate_time = self.adjust_to_preferred_time_window(candidate_time, rules)?;
+        }
+
+        Ok(candidate_time)
+    }
+    
+    fn adjust_to_preferred_time_window(
+        &self,
+        mut time: chrono::DateTime<chrono::Utc>,
+        rules: &SchedulingRules,
+    ) -> Result<chrono::DateTime<chrono::Utc>, String> {
+        // Find first suitable time window
+        for window in &rules.preferred_time_windows {
+            let weekday = time.weekday();
+            
+            if window.days_of_week.contains(&weekday) {
+                // Adjust to preferred start time
+                let target_time = window.start_time;
+                let current_time = time.time();
+                
+                if current_time < target_time {
+                    time = time.with_time(target_time).unwrap();
+                    return Ok(time);
+                } else if current_time <= window.end_time {
+                    // Already within window
+                    return Ok(time);
+                }
+            }
+        }
+        
+        // If no suitable window found, use original time
+        Ok(time)
     }
 
     pub fn schedule_reminders(

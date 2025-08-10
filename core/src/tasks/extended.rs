@@ -2,7 +2,7 @@ use crate::core::learner::OperationType;
 use crate::tasks::types::{Task, TaskType};
 use crate::core::topology::Topology;
 use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

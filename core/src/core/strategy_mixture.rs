@@ -10,7 +10,6 @@ pub enum MixtureStrategyType {
     Random,
     Pattern,
 }
-use rand::prelude::*;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use statrs::distribution::{Continuous, Normal};
